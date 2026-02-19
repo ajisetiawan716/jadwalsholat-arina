@@ -1,53 +1,54 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+# Parser untuk jadwalsholat.arina.id
+# Jalankan dari root folder repo:
+# python3 script/parser.py
 
 import os
 import re
 import json
+import time
+import pytz
 import requests
-from bs4 import BeautifulSoup
+import concurrent.futures
+from lxml import html
 from datetime import datetime
-from urllib.parse import urljoin
 
-BASE_URL = "https://jadwalsholat.arina.id/"
-OUTPUT_DIR = "data"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; arina-scraper/1.0)"
-}
-
-PRAYER_KEYS = ["imsak", "subuh", "dzuhur", "ashar", "maghrib", "isya"]
+tz = pytz.timezone('Asia/Jakarta')
+base_url = 'https://jadwalsholat.arina.id/'
 
 
-def fetch(url):
-    r = requests.get(url, headers=HEADERS, timeout=15)
-    r.raise_for_status()
-    return r.text
+def strip_lower(s):
+    return re.sub(r'\W+', '', s).lower()
 
 
-def get_all_locations():
-    html = fetch(BASE_URL)
-    soup = BeautifulSoup(html, "html.parser")
+def get_cities():
+    """
+    Ambil semua slug kota dari homepage arina
+    """
+    page = requests.get(base_url)
+    doc = html.fromstring(page.content)
 
-    locations = set()
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if href.startswith("/") and len(href) > 2:
-            slug = href.strip("/")
-            if "/" not in slug:
-                locations.add(slug)
+    links = doc.xpath('//a/@href')
+    cities = {}
 
-    return sorted(locations)
+    for link in links:
+        if link.startswith('/') and len(link) > 2:
+            slug = link.strip('/')
+            if '/' not in slug:
+                cities[slug] = slug
+
+    return cities
 
 
-def parse_month_and_year(soup):
-    title = soup.find("h3")
+def parse_month_year(doc):
+    """
+    Ambil bulan & tahun dari <h3>
+    """
+    title = doc.xpath('//h3/text()')
     if not title:
         return None, None
 
-    text = title.get_text(strip=True)
-    match = re.search(r"Bulan\s+(\w+)\s+(\d{4})", text)
-
+    match = re.search(r'Bulan\s+(\w+)\s+(\d{4})', title[0])
     if not match:
         return None, None
 
@@ -61,84 +62,99 @@ def parse_month_and_year(soup):
         "Oktober": 10, "November": 11, "Desember": 12
     }
 
-    bulan = bulan_map.get(bulan_text, None)
+    bulan = bulan_map.get(bulan_text)
+
     return bulan, tahun
 
 
-def parse_table(soup):
-    table = soup.find("table")
-    if not table:
-        return []
+def get_adzans(city):
+    """
+    Parse 1 bulan penuh dari kota
+    """
+    url = base_url + city
+    page = requests.get(url)
+    doc = html.fromstring(page.content)
 
-    rows = table.find("tbody").find_all("tr")
-    data = []
-
-    for row in rows:
-        tanggal = row.find("th").get_text(strip=True)
-        cols = [td.get_text(strip=True) for td in row.find_all("td")]
-
-        if len(cols) == 6:
-            data.append({
-                "tanggal": tanggal,
-                "imsak": cols[0],
-                "subuh": cols[1],
-                "dzuhur": cols[2],
-                "ashar": cols[3],
-                "maghrib": cols[4],
-                "isya": cols[5]
-            })
-
-    return data
-
-
-def save_json(city, year, month, data):
-    path = os.path.join(OUTPUT_DIR, city, str(year))
-    os.makedirs(path, exist_ok=True)
-
-    filename = os.path.join(path, f"{month:02d}.json")
-
-    output = {
-        "kota": city,
-        "tahun": year,
-        "bulan": month,
-        "data": data
-    }
-
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
-
-
-def scrape_city(city):
-    url = urljoin(BASE_URL, city)
-    print("Scraping:", city)
-
-    html = fetch(url)
-    soup = BeautifulSoup(html, "html.parser")
-
-    month, year = parse_month_and_year(soup)
+    month, year = parse_month_year(doc)
 
     if not month or not year:
-        print("Gagal baca bulan/tahun:", city)
+        print(f"Gagal baca bulan/tahun: {city}")
+        return None, None, []
+
+    rows = doc.xpath('//tbody/tr')
+
+    result = []
+
+    for row in rows:
+        tanggal = row.xpath('.//th/text()')
+        times = row.xpath('.//td/text()')
+
+        if len(tanggal) == 1 and len(times) == 6:
+            result.append({
+                'tanggal': tanggal[0],
+                'imsak': times[0],
+                'subuh': times[1],
+                'dzuhur': times[2],
+                'ashar': times[3],
+                'maghrib': times[4],
+                'isya': times[5]
+            })
+
+    return month, year, result
+
+
+def write_file(city, month, year, adzans):
+
+    if not adzans:
         return
 
-    data = parse_table(soup)
+    base_folder = './jadwal/' + city + '/'
+    year_folder = base_folder + str(year)
 
-    if data:
-        save_json(city, year, month, data)
-        print(f"Saved: {city}/{year}/{month:02d}.json")
-    else:
-        print("Tidak ada data tabel:", city)
+    if not os.path.exists(year_folder):
+        os.makedirs(year_folder, mode=0o777)
+
+    file_path = year_folder + '/' + f"{month:02d}.json"
+
+    with open(file_path, 'w+') as f:
+        f.write(json.dumps(adzans, indent=2))
+
+    print(f"Saved: {city}/{year}/{month:02d}.json")
+
+
+def process_city(name):
+
+    month, year, adzans = get_adzans(name)
+
+    if adzans:
+        write_file(name, month, year, adzans)
+
+    print('processing ' + name + ' done')
 
 
 def main():
-    cities = get_all_locations()
-    print("Total kota ditemukan:", len(cities))
 
-    for city in cities:
-        try:
-            scrape_city(city)
-        except Exception as e:
-            print("Error:", city, e)
+    start = time.time()
+    cities = get_cities()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = []
+        for name in cities.keys():
+            print('processing ' + name)
+            futures.append(executor.submit(process_city, name=name))
+        for future in concurrent.futures.as_completed(futures):
+            pass
+
+    print('\n It took', time.time() - start, 'seconds.')
+
+    print("\n Current working dir:")
+    print(os.getcwd())
+
+    print("\n List dir:")
+    print(os.listdir(os.getcwd()))
+
+    print("\n Git status:")
+    os.system('git status --porcelain')
 
 
 if __name__ == "__main__":
