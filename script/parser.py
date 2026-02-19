@@ -131,6 +131,10 @@ def process_city(name):
 
     print('processing ' + name + ' done')
 
+def get_cities():
+    page = requests.get(base_url)
+    print(page.text[:1000])   # DEBUG
+
 
 def main():
 
