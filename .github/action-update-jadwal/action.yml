@@ -1,0 +1,6 @@
+name: Action update jadwal
+description: Crawl jadwalsholat.arina.id and update jadwal
+
+runs:
+  using: docker
+  image: Dockerfile
