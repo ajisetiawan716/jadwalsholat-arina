@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-# Parser untuk jadwalsholat.arina.id
-# Jalankan dari root folder repo:
-# python3 script/parser.py
 
 import os
 import re
@@ -14,130 +11,104 @@ from lxml import html
 from datetime import datetime
 
 tz = pytz.timezone('Asia/Jakarta')
-base_url = 'https://jadwalsholat.arina.id/'
+base_url = 'https://jadwalsholat.arina.id'
 
 
 def strip_lower(s):
     return re.sub(r'\W+', '', s).lower()
 
 
+# ===============================
+# GET ALL CITIES FROM DROPDOWN
+# ===============================
 def get_cities():
-    """
-    Ambil kota dari elemen <select><option>
-    """
-    page = requests.get(base_url)
+
+    page = requests.get(base_url + '/brebes')
     doc = html.fromstring(page.content)
 
-    city_values = doc.xpath('//select//option/@value')
-    city_names = doc.xpath('//select//option/text()')
+    links = doc.xpath('//div[@id="dropdown-menu"]//a')
 
     cities = {}
 
-    for val, name in zip(city_values, city_names):
-        if val and val.strip():
-            slug = val.strip().lower()
-            cities[slug] = strip_lower(name)
+    for link in links:
+        name = link.text_content().strip()
+        href = link.get('href')
+        slug = href.split('/')[-1]
+        cities[slug] = strip_lower(name)
 
     return cities
-    print("Found select:", doc.xpath('//select'))    
-    print("Found options:", doc.xpath('//select//option'))
 
 
+# ===============================
+# PARSE JSON FROM wire:snapshot
+# ===============================
+def get_adzans(city_slug):
 
-def parse_month_year(doc):
-    """
-    Ambil bulan & tahun dari <h3>
-    """
-    title = doc.xpath('//h3/text()')
-    if not title:
-        return None, None
-
-    match = re.search(r'Bulan\s+(\w+)\s+(\d{4})', title[0])
-    if not match:
-        return None, None
-
-    bulan_text = match.group(1)
-    tahun = int(match.group(2))
-
-    bulan_map = {
-        "Januari": 1, "Februari": 2, "Maret": 3,
-        "April": 4, "Mei": 5, "Juni": 6,
-        "Juli": 7, "Agustus": 8, "September": 9,
-        "Oktober": 10, "November": 11, "Desember": 12
-    }
-
-    bulan = bulan_map.get(bulan_text)
-
-    return bulan, tahun
-
-
-def get_adzans(city):
-    """
-    Parse 1 bulan penuh dari kota
-    """
-    url = base_url + city
+    url = f"{base_url}/{city_slug}"
     page = requests.get(url)
     doc = html.fromstring(page.content)
 
-    month, year = parse_month_year(doc)
+    snapshot = doc.xpath('//div[@wire:id]/@wire:snapshot')
 
-    if not month or not year:
-        print(f"Gagal baca bulan/tahun: {city}")
-        return None, None, []
+    if not snapshot:
+        print(f"no snapshot for {city_slug}")
+        return []
 
-    rows = doc.xpath('//tbody/tr')
+    snapshot_json = snapshot[0]
+    snapshot_json = snapshot_json.replace('&quot;', '"')
+
+    data = json.loads(snapshot_json)
+    prayer_data = data['data']['prayerTimes'][0]
 
     result = []
 
-    for row in rows:
-        tanggal = row.xpath('.//th/text()')
-        times = row.xpath('.//td/text()')
+    for tanggal, val in prayer_data.items():
+        times = val[0]
 
-        if len(tanggal) == 1 and len(times) == 6:
-            result.append({
-                'tanggal': tanggal[0],
-                'imsak': times[0],
-                'subuh': times[1],
-                'dzuhur': times[2],
-                'ashar': times[3],
-                'maghrib': times[4],
-                'isya': times[5]
-            })
+        dt = datetime.strptime(tanggal, "%d-%m-%Y")
 
-    return month, year, result
+        result.append({
+            'tanggal': dt.strftime("%Y-%m-%d"),
+            'imsyak': times.get('Imsak'),
+            'shubuh': times.get('Fajr'),
+            'terbit': times.get('Sunrise'),
+            'dhuha': times.get('Dhuhr'),
+            'dzuhur': times.get('Dhuhr'),
+            'ashr': times.get('Asr'),
+            'magrib': times.get('Maghrib'),
+            'isya': times.get('Isha')
+        })
+
+    return result
 
 
-def write_file(city, month, year, adzans):
+# ===============================
+# WRITE FILE (SAMA FORMAT REPO)
+# ===============================
+def write_file(city, adzans):
 
     if not adzans:
         return
 
-    base_folder = './jadwal/' + city + '/'
-    year_folder = base_folder + str(year)
+    flb = './jadwal/' + city + '/'
 
-    if not os.path.exists(year_folder):
-        os.makedirs(year_folder, mode=0o777)
+    year = adzans[0]['tanggal'][:4]
+    month = adzans[0]['tanggal'][5:7]
 
-    file_path = year_folder + '/' + f"{month:02d}.json"
+    fld = flb + year
 
-    with open(file_path, 'w+') as f:
-        f.write(json.dumps(adzans, indent=2))
+    if not os.path.exists(fld):
+        os.makedirs(fld, mode=0o777)
 
-    print(f"Saved: {city}/{year}/{month:02d}.json")
+    with open(fld + '/' + month + '.json', 'w+') as fl:
+        fl.write(json.dumps(adzans))
 
 
-def process_city(name):
-
-    month, year, adzans = get_adzans(name)
-
-    if adzans:
-        write_file(name, month, year, adzans)
-
-    print('processing ' + name + ' done')
-
-def get_cities():
-    page = requests.get(base_url)
-    print(page.text[:1000])   # DEBUG
+def process_city(slug, name):
+    print("processing", name)
+    adzans = get_adzans(slug)
+    write_file(name, adzans)
+    print("done", name)
 
 
 def main():
@@ -147,11 +118,13 @@ def main():
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = []
-        for name in cities.keys():
-            print('processing ' + name)
-            futures.append(executor.submit(process_city, name=name))
+        for slug, name in cities.items():
+            futures.append(executor.submit(process_city, slug, name))
+
         for future in concurrent.futures.as_completed(futures):
             pass
+
+    print("\nTook", time.time()-start, "seconds.")
 
     print('\n It took', time.time() - start, 'seconds.')
 
