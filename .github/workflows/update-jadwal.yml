@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v1
-      - name: Update adzans
+      - name: Update jadwal
         uses: ./.github/action-update-jadwal/
         # env:
           # JWO_MONTH: '02'
@@ -26,7 +26,7 @@ jobs:
       - name: Commit changes
         uses: EndBug/add-and-commit@v7.0.0
         with:
-          message: "[gh-actions] update adzans"
+          message: "[gh-actions] update jadwal"
           author_name: github-actions
           author_email: 41898282+github-actions[bot]@users.noreply.github.com
           push: false
