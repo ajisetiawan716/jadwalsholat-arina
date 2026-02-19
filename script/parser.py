@@ -65,15 +65,20 @@ def get_adzans(city_slug):
         print("FAILED:", city_slug, page.status_code)
         return []
 
-    doc = html.fromstring(page.content)
+    html_text = page.text
 
-    snapshot = doc.xpath('//div[contains(@wire:snapshot)]/@wire:snapshot')
+    match = re.search(r'wire:snapshot="(.*?)"\s', html_text)
 
-    if not snapshot:
+    print("FOUND SNAPSHOT?", city_slug, bool(match))
+
+
+    if not match:
         print("NO SNAPSHOT:", city_slug)
         return []
 
-    snapshot_json = snapshot[0].replace('&quot;', '"')
+    snapshot_raw = match.group(1)
+
+    snapshot_json = snapshot_raw.replace('&quot;', '"')
 
     try:
         data = json.loads(snapshot_json)
@@ -110,7 +115,6 @@ def get_adzans(city_slug):
     print("OK:", city_slug, len(result))
 
     return result
-
 
 # ===============================
 # WRITE FILE (SAME STRUCTURE)
