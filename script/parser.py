@@ -22,22 +22,12 @@ def strip_lower(s):
 
 
 def get_cities():
-    """
-    Ambil semua slug kota dari homepage arina
-    """
-    page = requests.get(base_url)
-    doc = html.fromstring(page.content)
-
-    links = doc.xpath('//a/@href')
-    cities = {}
-
-    for link in links:
-        if link.startswith('/') and len(link) > 2:
-            slug = link.strip('/')
-            if '/' not in slug:
-                cities[slug] = slug
-
-    return cities
+    # sementara hardcode dulu untuk test
+    return {
+        "brebes": "brebes",
+        "tegal": "tegal",
+        "jakarta": "jakarta"
+    }
 
 
 def parse_month_year(doc):
