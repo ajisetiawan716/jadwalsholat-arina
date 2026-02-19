@@ -24,9 +24,6 @@ jobs:
         with:
           persist-credentials: true
 
-      - name: Fix git safe directory
-        run: git config --global --add safe.directory /github/workspace
-
       - name: Update jadwal
         uses: ./.github/action-update-jadwal/
 
