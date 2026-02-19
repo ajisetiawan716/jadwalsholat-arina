@@ -22,12 +22,26 @@ def strip_lower(s):
 
 
 def get_cities():
-    # sementara hardcode dulu untuk test
-    return {
-        "brebes": "brebes",
-        "tegal": "tegal",
-        "jakarta": "jakarta"
-    }
+    """
+    Ambil kota dari elemen <select><option>
+    """
+    page = requests.get(base_url)
+    doc = html.fromstring(page.content)
+
+    city_values = doc.xpath('//select//option/@value')
+    city_names = doc.xpath('//select//option/text()')
+
+    cities = {}
+
+    for val, name in zip(city_values, city_names):
+        if val and val.strip():
+            slug = val.strip().lower()
+            cities[slug] = strip_lower(name)
+
+    return cities
+    print("Found select:", doc.xpath('//select'))    
+    print("Found options:", doc.xpath('//select//option'))
+
 
 
 def parse_month_year(doc):
