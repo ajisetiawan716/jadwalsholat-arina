@@ -1,4 +1,4 @@
-name: Workflow for update adzans
+name: Workflow for update jadwal
 
 on:
   push:
