@@ -150,6 +150,10 @@ def main():
 
     print("\n Git status:")
     os.system('git status --porcelain')
+    
+    print(page.status_code)
+    print(page.text[:1000])
+
 
 if __name__ == "__main__":
     main()
