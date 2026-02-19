@@ -20,20 +20,34 @@ def strip_lower(s):
 
 def get_cities():
 
-    page = requests.get(base_url + '/brebes')
-    html_text = page.text
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
 
-    matches = re.findall(r'href="https://jadwalsholat\.arina\.id/([^"]+)"', html_text)
+    page = requests.get(base_url + '/brebes', headers=headers)
+    doc = html.fromstring(page.content)
+
+    links = doc.xpath('//a[contains(@href,"jadwalsholat.arina.id/")]')
 
     cities = {}
 
-    for slug in matches:
-        if slug not in cities:
+    for link in links:
+        href = link.get("href")
+
+        if not href:
+            continue
+
+        # ambil slug terakhir
+        slug = href.split("/")[-1]
+
+        # skip kalau bukan kota (misal images, rss, dll)
+        if slug and "-" in slug or slug.isalpha():
             cities[slug] = slug
 
     print("Total cities found:", len(cities))
 
     return cities
+
 
 
 # ===============================
