@@ -18,23 +18,20 @@ def strip_lower(s):
     return re.sub(r'\W+', '', s).lower()
 
 
-# ===============================
-# GET ALL CITIES FROM DROPDOWN
-# ===============================
 def get_cities():
 
     page = requests.get(base_url + '/brebes')
-    doc = html.fromstring(page.content)
+    html_text = page.text
 
-    links = doc.xpath('//div[@id="dropdown-menu"]//a')
+    matches = re.findall(r'href="https://jadwalsholat\.arina\.id/([^"]+)"', html_text)
 
     cities = {}
 
-    for link in links:
-        name = link.text_content().strip()
-        href = link.get('href')
-        slug = href.split('/')[-1]
-        cities[slug] = strip_lower(name)
+    for slug in matches:
+        if slug not in cities:
+            cities[slug] = slug
+
+    print("Total cities found:", len(cities))
 
     return cities
 
@@ -124,6 +121,9 @@ def main():
         for future in concurrent.futures.as_completed(futures):
             pass
 
+    cities = get_cities()
+    print(cities)
+
     print("\nTook", time.time()-start, "seconds.")
 
     print('\n It took', time.time() - start, 'seconds.')
@@ -136,7 +136,6 @@ def main():
 
     print("\n Git status:")
     os.system('git status --porcelain')
-
 
 if __name__ == "__main__":
     main()
