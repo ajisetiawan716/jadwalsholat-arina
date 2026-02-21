@@ -14,15 +14,12 @@ tz = pytz.timezone('Asia/Jakarta')
 base_url = 'https://jadwalsholat.arina.id'
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    "User-Agent": "Mozilla/5.0"
 }
 
-
-# ===============================
-# UTILITY
-# ===============================
-def strip_lower(s):
-    return re.sub(r'\W+', '', s).lower()
+REQUEST_TIMEOUT = 15
+MAX_WORKERS = 4
+RETRY_COUNT = 3
 
 
 # ===============================
@@ -30,7 +27,12 @@ def strip_lower(s):
 # ===============================
 def get_cities():
 
-    page = requests.get(base_url + '/brebes', headers=HEADERS)
+    try:
+        page = requests.get(base_url + '/brebes', headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    except Exception as e:
+        print("FAILED FETCH CITY LIST:", e)
+        return {}
+
     doc = html.fromstring(page.content)
 
     links = doc.xpath('//a[contains(@href,"jadwalsholat.arina.id/")]')
@@ -44,9 +46,8 @@ def get_cities():
 
         slug = href.split("/")[-1]
 
-        # filter valid slug (hindari rss, images, dll)
         if slug and not slug.endswith('.xml') and not slug.endswith('.webp'):
-            cities[slug] = strip_lower(slug)
+            cities[slug] = slug
 
     print("Total cities found:", len(cities))
 
@@ -54,90 +55,100 @@ def get_cities():
 
 
 # ===============================
-# GET MONTHLY PRAYER TIMES
+# GET MONTHLY SCHEDULE
 # ===============================
-def get_adzans(city_slug):
+def get_schedule(city_slug):
 
     url = f"{base_url}/{city_slug}"
-    page = requests.get(url, headers=HEADERS)
 
-    if page.status_code != 200:
-        print("FAILED:", city_slug, page.status_code)
-        return []
+    for attempt in range(RETRY_COUNT):
 
-    html_text = page.text
+        try:
+            page = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        except Exception as e:
+            print("REQUEST ERROR:", city_slug, e)
+            time.sleep(1)
+            continue
 
-    match = re.search(r'wire:snapshot="(.*?)"\s', html_text)
+        if page.status_code != 200:
+            print("FAILED:", city_slug, page.status_code)
+            return []
 
-    print("FOUND SNAPSHOT?", city_slug, bool(match))
+        html_text = page.text
 
+        match = re.search(r'wire:snapshot="(.*?)"\s', html_text)
 
-    if not match:
-        print("NO SNAPSHOT:", city_slug)
-        return []
+        print("FOUND SNAPSHOT?", city_slug, bool(match))
 
-    snapshot_raw = match.group(1)
+        if not match:
+            time.sleep(1)
+            continue
 
-    snapshot_json = snapshot_raw.replace('&quot;', '"')
+        snapshot_raw = match.group(1)
+        snapshot_json = snapshot_raw.replace('&quot;', '"')
 
-    try:
-        data = json.loads(snapshot_json)
-    except Exception as e:
-        print("JSON ERROR:", city_slug, e)
-        return []
+        try:
+            data = json.loads(snapshot_json)
+        except Exception as e:
+            print("JSON ERROR:", city_slug, e)
+            return []
 
-    if "prayerTimes" not in data["data"]:
-        print("NO PRAYER DATA:", city_slug)
-        return []
+        if "prayerTimes" not in data["data"]:
+            print("NO PRAYER DATA:", city_slug)
+            return []
 
-    prayer_data = data["data"]["prayerTimes"][0]
+        prayer_data = data["data"]["prayerTimes"][0]
 
-    result = []
+        schedules = []
 
-    for tanggal, val in prayer_data.items():
+        for tanggal in sorted(prayer_data.keys()):
 
-        times = val[0]
+            val = prayer_data[tanggal]
+            times = val[0]
 
-        dt = datetime.strptime(tanggal, "%d-%m-%Y")
+            dt = datetime.strptime(tanggal, "%d-%m-%Y")
 
-        result.append({
-            "tanggal": dt.strftime("%Y-%m-%d"),
-            "imsyak": times.get("Imsak"),
-            "shubuh": times.get("Fajr"),
-            "terbit": times.get("Sunrise"),
-            "dhuha": None,
-            "dzuhur": times.get("Dhuhr"),
-            "ashr": times.get("Asr"),
-            "magrib": times.get("Maghrib"),
-            "isya": times.get("Isha")
-        })
+            schedules.append({
+                "tanggal": dt.strftime("%Y-%m-%d"),
+                "imsyak": times.get("Imsak"),
+                "shubuh": times.get("Fajr"),
+                "terbit": times.get("Sunrise"),
+                "dhuha": None,
+                "dzuhur": times.get("Dhuhr"),
+                "ashr": times.get("Asr"),
+                "magrib": times.get("Maghrib"),
+                "isya": times.get("Isha")
+            })
 
-    print("OK:", city_slug, len(result))
+        print("OK:", city_slug, len(schedules))
+        return schedules
 
-    return result
+    print("FAILED AFTER RETRY:", city_slug)
+    return []
+
 
 # ===============================
-# WRITE FILE (SAME STRUCTURE)
+# WRITE FILE
 # ===============================
-def write_file(city, adzans):
+def write_file(city, schedules):
 
-    if not adzans:
+    if not schedules:
         return
 
-    base_folder = './jadwal/' + city + '/'
+    year = schedules[0]['tanggal'][:4]
+    month = schedules[0]['tanggal'][5:7]
 
-    year = adzans[0]['tanggal'][:4]
-    month = adzans[0]['tanggal'][5:7]
+    folder_path = f'./jadwal/{city}/{year}'
+    os.makedirs(folder_path, exist_ok=True)
 
-    folder_path = base_folder + year
+    file_path = f"{folder_path}/{month}.json"
 
-    if not os.path.exists(folder_path):
-        os.makedirs(folder_path, mode=0o777)
-
-    file_path = folder_path + '/' + month + '.json'
+    if os.path.exists(file_path):
+        print("SKIP (exists):", file_path)
+        return
 
     with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(json.dumps(adzans, ensure_ascii=False))
+        json.dump(schedules, f, ensure_ascii=False)
 
     print("WROTE:", file_path)
 
@@ -145,10 +156,10 @@ def write_file(city, adzans):
 # ===============================
 # PROCESS EACH CITY
 # ===============================
-def process_city(slug, name):
+def process_city(slug):
     print("Processing:", slug)
-    adzans = get_adzans(slug)
-    write_file(name, adzans)
+    schedules = get_schedule(slug)
+    write_file(slug, schedules)
 
 
 # ===============================
@@ -160,17 +171,18 @@ def main():
 
     cities = get_cities()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = []
-        for slug, name in cities.items():
-            futures.append(executor.submit(process_city, slug, name))
+    if not cities:
+        print("No cities found. Exit.")
+        return
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(process_city, slug) for slug in cities.keys()]
 
         for future in concurrent.futures.as_completed(futures):
             pass
 
     print("\nTook", time.time()-start, "seconds.")
     print("\nCurrent working dir:", os.getcwd())
-    print("\nList dir:", os.listdir(os.getcwd()))
     print("\nGit status:")
     os.system('git status --porcelain')
 
