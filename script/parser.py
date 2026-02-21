@@ -5,38 +5,24 @@ import re
 import json
 import time
 import pytz
-import shutil
 import requests
 import concurrent.futures
 from lxml import html
-from datetime import datetime, timedelta
+from datetime import datetime
 
 tz = pytz.timezone('Asia/Jakarta')
 base_url = 'https://jadwalsholat.arina.id'
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
 
 # ===============================
-# DETECT CURRENT & NEXT MONTH
+# UTILITY
 # ===============================
-def get_target_months():
-    now = datetime.now(tz)
-
-    current_month = f"{now.month:02d}"
-    current_year = str(now.year)
-
-    first_day_next = (now.replace(day=1) + timedelta(days=32)).replace(day=1)
-
-    next_month = f"{first_day_next.month:02d}"
-    next_year = str(first_day_next.year)
-
-    return [
-        (current_month, current_year),
-        (next_month, next_year)
-    ]
+def strip_lower(s):
+    return re.sub(r'\W+', '', s).lower()
 
 
 # ===============================
@@ -58,8 +44,9 @@ def get_cities():
 
         slug = href.split("/")[-1]
 
+        # filter valid slug (hindari rss, images, dll)
         if slug and not slug.endswith('.xml') and not slug.endswith('.webp'):
-            cities[slug] = slug
+            cities[slug] = strip_lower(slug)
 
     print("Total cities found:", len(cities))
 
@@ -67,29 +54,40 @@ def get_cities():
 
 
 # ===============================
-# GET MONTHLY DATA
+# GET MONTHLY PRAYER TIMES
 # ===============================
-def get_adzans(city_slug, month, year):
+def get_adzans(city_slug):
 
-    url = f"{base_url}/{city_slug}?month={month}&year={year}"
+    url = f"{base_url}/{city_slug}"
     page = requests.get(url, headers=HEADERS)
 
     if page.status_code != 200:
         print("FAILED:", city_slug, page.status_code)
         return []
 
-    match = re.search(r'wire:snapshot="(.*?)"\s', page.text)
+    html_text = page.text
+
+    match = re.search(r'wire:snapshot="(.*?)"\s', html_text)
+
+    print("FOUND SNAPSHOT?", city_slug, bool(match))
+
 
     if not match:
         print("NO SNAPSHOT:", city_slug)
         return []
 
-    snapshot_json = match.group(1).replace('&quot;', '"')
+    snapshot_raw = match.group(1)
+
+    snapshot_json = snapshot_raw.replace('&quot;', '"')
 
     try:
         data = json.loads(snapshot_json)
     except Exception as e:
         print("JSON ERROR:", city_slug, e)
+        return []
+
+    if "prayerTimes" not in data["data"]:
+        print("NO PRAYER DATA:", city_slug)
         return []
 
     prayer_data = data["data"]["prayerTimes"][0]
@@ -99,6 +97,7 @@ def get_adzans(city_slug, month, year):
     for tanggal, val in prayer_data.items():
 
         times = val[0]
+
         dt = datetime.strptime(tanggal, "%d-%m-%Y")
 
         result.append({
@@ -113,78 +112,43 @@ def get_adzans(city_slug, month, year):
             "isya": times.get("Isha")
         })
 
-    print("OK:", city_slug, month, len(result))
+    print("OK:", city_slug, len(result))
 
     return result
 
-
 # ===============================
-# WRITE FILE (NO OVERWRITE)
+# WRITE FILE (SAME STRUCTURE)
 # ===============================
-def write_file(city, adzans, month, year):
+def write_file(city, adzans):
 
     if not adzans:
         return
 
-    folder_path = f'./jadwal/{city}/{year}'
-    os.makedirs(folder_path, exist_ok=True)
+    base_folder = './jadwal/' + city + '/'
 
-    file_path = f"{folder_path}/{month}.json"
+    year = adzans[0]['tanggal'][:4]
+    month = adzans[0]['tanggal'][5:7]
 
-    # Skip kalau sudah ada
-    if os.path.exists(file_path):
-        print("SKIP (exists):", file_path)
-        return
+    folder_path = base_folder + year
+
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path, mode=0o777)
+
+    file_path = folder_path + '/' + month + '.json'
 
     with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(adzans, f, ensure_ascii=False)
+        f.write(json.dumps(adzans, ensure_ascii=False))
 
     print("WROTE:", file_path)
 
 
 # ===============================
-# CLEANUP OLD YEARS (KEEP 2)
+# PROCESS EACH CITY
 # ===============================
-def cleanup_old_years():
-
-    base_path = './jadwal'
-
-    if not os.path.exists(base_path):
-        return
-
-    for city in os.listdir(base_path):
-
-        city_path = os.path.join(base_path, city)
-
-        if not os.path.isdir(city_path):
-            continue
-
-        years = sorted([
-            y for y in os.listdir(city_path)
-            if y.isdigit()
-        ])
-
-        # keep max 2 tahun
-        if len(years) > 2:
-            oldest = years[0]
-            remove_path = os.path.join(city_path, oldest)
-            shutil.rmtree(remove_path)
-            print("REMOVED OLD YEAR:", remove_path)
-
-
-# ===============================
-# PROCESS CITY
-# ===============================
-def process_city(slug, targets):
-
+def process_city(slug, name):
     print("Processing:", slug)
-
-    for month, year in targets:
-
-        adzans = get_adzans(slug, month, year)
-        write_file(slug, adzans, month, year)
-
-        time.sleep(0.1)  # anti rate-limit
+    adzans = get_adzans(slug)
+    write_file(name, adzans)
 
 
 # ===============================
@@ -194,22 +158,19 @@ def main():
 
     start = time.time()
 
-    targets = get_target_months()
-    print("Generating for:", targets)
-
     cities = get_cities()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = []
-        for slug in cities.keys():
-            futures.append(executor.submit(process_city, slug, targets))
+        for slug, name in cities.items():
+            futures.append(executor.submit(process_city, slug, name))
 
         for future in concurrent.futures.as_completed(futures):
             pass
 
-    cleanup_old_years()
-
     print("\nTook", time.time()-start, "seconds.")
+    print("\nCurrent working dir:", os.getcwd())
+    print("\nList dir:", os.listdir(os.getcwd()))
     print("\nGit status:")
     os.system('git status --porcelain')
 
