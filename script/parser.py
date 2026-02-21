@@ -5,10 +5,11 @@ import re
 import json
 import time
 import pytz
+import shutil
 import requests
 import concurrent.futures
-from lxml import html
 from datetime import datetime
+from lxml import html
 
 tz = pytz.timezone('Asia/Jakarta')
 base_url = 'https://jadwalsholat.arina.id'
@@ -44,7 +45,7 @@ def get_cities():
 
         slug = href.split("/")[-1]
 
-        # filter valid slug (hindari rss, images, dll)
+        # Filter valid kota saja
         if slug and not slug.endswith('.xml') and not slug.endswith('.webp'):
             cities[slug] = strip_lower(slug)
 
@@ -56,38 +57,33 @@ def get_cities():
 # ===============================
 # GET MONTHLY PRAYER TIMES
 # ===============================
-def get_adzans(city_slug):
+def get_adzans(city_slug, month, year):
 
-    url = f"{base_url}/{city_slug}"
+    url = f"{base_url}/{city_slug}?month={month}&year={year}"
     page = requests.get(url, headers=HEADERS)
 
     if page.status_code != 200:
-        print("FAILED:", city_slug, page.status_code)
+        print("FAILED:", city_slug, month, year)
         return []
 
     html_text = page.text
 
     match = re.search(r'wire:snapshot="(.*?)"\s', html_text)
 
-    print("FOUND SNAPSHOT?", city_slug, bool(match))
-
-
     if not match:
-        print("NO SNAPSHOT:", city_slug)
+        print("NO SNAPSHOT:", city_slug, month)
         return []
 
-    snapshot_raw = match.group(1)
-
-    snapshot_json = snapshot_raw.replace('&quot;', '"')
+    snapshot_json = match.group(1).replace('&quot;', '"')
 
     try:
         data = json.loads(snapshot_json)
     except Exception as e:
-        print("JSON ERROR:", city_slug, e)
+        print("JSON ERROR:", city_slug, month, e)
         return []
 
     if "prayerTimes" not in data["data"]:
-        print("NO PRAYER DATA:", city_slug)
+        print("NO PRAYER DATA:", city_slug, month)
         return []
 
     prayer_data = data["data"]["prayerTimes"][0]
@@ -112,12 +108,13 @@ def get_adzans(city_slug):
             "isya": times.get("Isha")
         })
 
-    print("OK:", city_slug, len(result))
+    print("OK:", city_slug, month, len(result))
 
     return result
 
+
 # ===============================
-# WRITE FILE (SAME STRUCTURE)
+# WRITE FILE
 # ===============================
 def write_file(city, adzans):
 
@@ -143,12 +140,23 @@ def write_file(city, adzans):
 
 
 # ===============================
-# PROCESS EACH CITY
+# PROCESS EACH CITY (12 BULAN)
 # ===============================
 def process_city(slug, name):
-    print("Processing:", slug)
-    adzans = get_adzans(slug)
-    write_file(name, adzans)
+
+    current_year = datetime.now().year
+
+    for month in range(1, 13):
+
+        month_str = f"{month:02d}"
+        year_str = str(current_year)
+
+        adzans = get_adzans(slug, month_str, year_str)
+
+        write_file(name, adzans)
+
+        # delay kecil supaya tidak diblokir server
+        time.sleep(0.15)
 
 
 # ===============================
@@ -158,9 +166,14 @@ def main():
 
     start = time.time()
 
+    # Optional: hapus folder lama biar bersih
+    if os.path.exists('./jadwal'):
+        shutil.rmtree('./jadwal')
+
     cities = get_cities()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+    # Worker kecil supaya aman dari rate-limit
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
         futures = []
         for slug, name in cities.items():
             futures.append(executor.submit(process_city, slug, name))
