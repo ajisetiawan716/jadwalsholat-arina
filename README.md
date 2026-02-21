@@ -1,5 +1,3 @@
----
-
 # 📖 Jadwal Sholat Arina (JSON Endpoint)
 
 Repository ini menyediakan **jadwal sholat bulanan dalam format JSON** untuk seluruh kota/kabupaten di Indonesia berdasarkan data dari:
@@ -93,5 +91,3 @@ python script/parser.py
 ## 📜 Lisensi
 
 Gunakan dengan bijak sesuai kebutuhan pribadi atau non-komersial.
-
----
