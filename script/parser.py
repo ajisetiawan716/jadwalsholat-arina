@@ -124,20 +124,20 @@ def write_file(city, adzans):
     if not adzans:
         return
 
-    flb = './adzan/' + city + '/'
+    base_folder = './jadwal/' + city + '/'
 
     year = adzans[0]['tanggal'][:4]
     month = adzans[0]['tanggal'][5:7]
 
-    fld = flb + year
+    folder_path = base_folder + year
 
-    if not os.path.exists(fld):
-        os.makedirs(fld, mode=0o777)
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path, mode=0o777)
 
-    file_path = fld + '/' + month + '.json'
+    file_path = folder_path + '/' + month + '.json'
 
-    with open(file_path, 'w', encoding='utf-8') as fl:
-        fl.write(json.dumps(adzans, ensure_ascii=False))
+    with open(file_path, 'w', encoding='utf-8') as f:
+        f.write(json.dumps(adzans, ensure_ascii=False))
 
     print("WROTE:", file_path)
 
