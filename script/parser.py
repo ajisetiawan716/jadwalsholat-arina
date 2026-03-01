@@ -130,15 +130,21 @@ def get_schedule(city_slug):
 # ===============================
 # WRITE FILE
 # ===============================
-def write_file(city, schedules):
-
+def write_file(city_slug, schedules):
+    """
+    Menyimpan file jadwal ke folder berdasarkan slug kota
+    dengan menghapus tanda strip (-)
+    """
     if not schedules:
         return
+
+    # Hapus tanda strip dari slug untuk nama folder
+    folder_city = city_slug.replace('-', '')
 
     year = schedules[0]['tanggal'][:4]
     month = schedules[0]['tanggal'][5:7]
 
-    folder_path = f'./jadwal/{city}/{year}'
+    folder_path = f'./jadwal/{folder_city}/{year}'
     os.makedirs(folder_path, exist_ok=True)
 
     file_path = f"{folder_path}/{month}.json"
@@ -159,7 +165,10 @@ def write_file(city, schedules):
 def process_city(slug):
     print("Processing:", slug)
     schedules = get_schedule(slug)
-    write_file(slug, schedules)
+    if schedules:
+        write_file(slug, schedules)
+    else:
+        print("No data for:", slug)
 
 
 # ===============================
