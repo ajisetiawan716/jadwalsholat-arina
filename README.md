@@ -24,9 +24,51 @@ jadwal/brebes/2026/02.json
 
 ---
 
+## 🗂 Daftar Kota (`kota.json`)
+
+Di root repository tersedia file:
+
+```
+kota.json
+```
+
+File ini berisi daftar seluruh slug kota/kabupaten yang tersedia dan digunakan dalam struktur folder `jadwal/`.
+
+Contoh isi:
+
+```json
+[
+  "acehbarat",
+  "acehbaratdaya",
+  "acehbesar",
+  "acehjaya",
+  "acehselatan",
+  "acehsingkil"
+]
+```
+
+### 🌐 Endpoint `kota.json`
+
+Raw GitHub:
+
+```
+https://raw.githubusercontent.com/ajisetiawan716/jadwalsholat-arina/master/kota.json
+```
+
+Dengan endpoint ini, integrator cukup fetch sekali untuk mendapatkan seluruh daftar kota yang tersedia.
+
+### Fungsi `kota.json`
+
+* Menjadi referensi daftar kota yang didukung
+* Digunakan oleh script generator untuk proses scraping
+* Mempermudah integrasi eksternal tanpa perlu menebak slug
+* Dapat dijadikan validasi sebelum request jadwal
+
+---
+
 ## 📦 Format JSON
 
-Contoh isi file:
+Contoh isi file jadwal:
 
 ```json
 [
@@ -46,15 +88,7 @@ Contoh isi file:
 
 ---
 
-## 🌐 Contoh Endpoint
-
-Raw GitHub:
-
-```
-https://raw.githubusercontent.com/{username}/{repo}/master/jadwal/brebes/2026/02.json
-```
-
-Contoh nyata:
+## 🌐 Contoh Endpoint Jadwal
 
 ```
 https://raw.githubusercontent.com/ajisetiawan716/jadwalsholat-arina/master/jadwal/brebes/2026/02.json
@@ -91,3 +125,5 @@ python script/parser.py
 ## 📜 Lisensi
 
 Gunakan dengan bijak sesuai kebutuhan pribadi atau non-komersial.
+
+---
