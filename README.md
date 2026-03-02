@@ -91,7 +91,7 @@ Contoh isi file jadwal:
 ## 🌐 Contoh Endpoint Jadwal
 
 ```
-https://raw.githubusercontent.com/ajisetiawan716/jadwalsholat-arina/master/jadwal/brebes/2026/02.json
+https://raw.githubusercontent.com/ajisetiawan716/jadwalsholat-arina/master/jadwal/brebes/2026/03.json
 ```
 
 ---
